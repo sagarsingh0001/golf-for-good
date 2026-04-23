@@ -1,0 +1,70 @@
+{
+  "summary": "Backend-only test run for Golf For Good. Wrote pytest suite (35 tests) covering auth (JWT cookies), charities (public + admin CRUD), scores (range 1-45, unique-per-date, last-5 auto-eviction), user profile (charity min 10% enforced), subscription/Stripe (checkout session creation + cancel), draws (configure/simulate/publish with rollover), winners, uploads, admin RBAC, and 401/403 enforcement. 32 passed, 1 failed, 2 conditionally skipped (winner-proof happy path — no winner row exists for seeded test user).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/subscribe/status/{session_id}",
+        "issue": "Returns 500 Internal Server Error when Stripe cannot find the session. emergentintegrations.payments.stripe.checkout.CheckoutError ('No such checkout.session: cs_test_...') is raised inside the route but not caught. Repro: POST /api/subscribe/checkout with plan=monthly, then immediately GET /api/subscribe/status/{returned_session_id}. Fix: wrap `stripe.get_checkout_status(session_id)` in try/except CheckoutError and return HTTPException(400 or 502) or a JSON status payload. Also relevant: /api/webhook/stripe uses the same code path.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "CORS middleware (server.py)",
+        "issue": "allow_credentials=True combined with allow_origins=['*'] is an invalid CORS pair per spec. Effectively works only because allow_origin_regex overrides, but browsers may refuse cookie credentials in some flows. Recommend pinning origins to an explicit allow-list (REACT_APP_BACKEND_URL host + prod origin)."
+      },
+      {
+        "endpoint": "POST /api/draws/publish & /api/auth/register",
+        "issue": "Email sending is awaited in-request. Resend test-mode errors are swallowed, but this still blocks response on network latency. Prefer FastAPI BackgroundTasks or asyncio.create_task for true fire-and-forget."
+      },
+      {
+        "endpoint": "services/draw_engine.compute_prize_pool via /api/draws/configure",
+        "issue": "Prize pool estimate multiplies active_users by MONTHLY_PRICE only; yearly subscribers are under-counted. Should sum (yearly_price/12) for yearly plans or use real payment_transactions totals for the month."
+      },
+      {
+        "endpoint": "POST /api/auth/login",
+        "issue": "No brute-force lockout / rate limit after N failed attempts (playbook recommendation). Currently unlimited attempts."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix GET /api/subscribe/status/{session_id} to catch emergentintegrations CheckoutError and return a proper 4xx (or a safe JSON payload with payment_status='unknown'). Same applies to /api/webhook/stripe.",
+    "Consider tightening CORS: remove allow_origins=['*'] when allow_credentials=True is required.",
+    "Move post-publish winner/result emails and welcome email to BackgroundTasks to avoid blocking request latency.",
+    "Improve prize pool computation to respect yearly plans (not all plans equal to MONTHLY_PRICE).",
+    "Add login rate limiting / account lockout after 5 failed attempts."
+  ],
+  "critical_code_review_comments": [
+    "subscription_routes.py: unhandled StripeCheckout exceptions bubble to 500. Wrap stripe client calls in try/except and map to HTTPException.",
+    "server.py CORS: allow_credentials=True + allow_origins=['*'] is non-spec; rely on allow_origin_regex with a narrower pattern.",
+    "admin_routes.py PATCH /admin/users/{id} accepts a raw dict without Pydantic validation (risks silent bad data). Use a typed AdminUserUpdate model.",
+    "email_service.py: failures are logged as ERROR but not surfaced to admin. OK for test mode with Resend, but add monitoring / dead-letter for prod.",
+    "No input length limits on charity/name/description fields — add max_length via Pydantic to prevent abuse.",
+    "server.py uses deprecated @app.on_event; migrate to FastAPI lifespan context."
+  ],
+  "updated_files": [
+    "/app/backend/tests/__init__.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_backend.py"
+  ],
+  "success_rate": {
+    "backend": "97% (32 passed / 33 executed; 1 real bug; 2 conditional skips)",
+    "frontend": "not tested (backend-only run requested)"
+  },
+  "test_credentials": "Admin: admin@golfforgood.com / Admin@1234 — Test user: test@golfforgood.com / Test@1234 (both seeded on startup and verified functional).",
+  "seed_data_creation": "No permanent seed created. Tests use TEST_-prefixed transient data and clean up after themselves (scores, charities). A few TEST_reg_* users may remain in db.users from register-flow tests; safe to ignore or purge with {email: /^test_reg_/i}.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is stable overall. 1 critical bug remains in /api/subscribe/status. After main agent fixes it, rerun `pytest /app/backend/tests/ -v` — expect 33 passed, 2 skipped. The 2 skips for upload happy-path will only run once a winner row exists for test@golfforgood.com (can be seeded by admin running /api/draws/publish with the test user having 5 matching scores, or by manually inserting a winners doc). Frontend testing not yet performed.",
+  "rca_of_the_issue": "RCA for /api/subscribe/status 500: The route at /app/backend/routes/subscription_routes.py line 62 calls `await stripe.get_checkout_status(session_id)` without a try/except. With sk_test_emergent, the created session is not retrievable via the Stripe API (likely because the emergent test key mints sessions in an isolated namespace), so the emergentintegrations library raises CheckoutError, which FastAPI renders as 500. Mitigation: wrap the call in try/except emergentintegrations.payments.stripe.checkout.CheckoutError and return HTTPException(status_code=502, detail='Payment provider temporarily unavailable') OR return cached DB status (`payment_transactions.payment_status`) when upstream lookup fails."
+}

@@ -1,53 +1,64 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { Toaster } from "@/components/ui/sonner";
+import Layout from "@/components/Layout";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import Landing from "@/pages/Landing";
+import Pricing from "@/pages/Pricing";
+import Login from "@/pages/Login";
+import Signup from "@/pages/Signup";
+import HowItWorks from "@/pages/HowItWorks";
+import Charities from "@/pages/Charities";
+import CharityDetail from "@/pages/CharityDetail";
+import Dashboard from "@/pages/dashboard/Dashboard";
+import ScoresPage from "@/pages/dashboard/Scores";
+import DrawsPage from "@/pages/dashboard/Draws";
+import WinningsPage from "@/pages/dashboard/Winnings";
+import ProfilePage from "@/pages/dashboard/Profile";
+import CheckoutSuccess from "@/pages/CheckoutSuccess";
+import AdminDashboard from "@/pages/admin/AdminDashboard";
+import AdminUsers from "@/pages/admin/AdminUsers";
+import AdminDraws from "@/pages/admin/AdminDraws";
+import AdminCharities from "@/pages/admin/AdminCharities";
+import AdminWinners from "@/pages/admin/AdminWinners";
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+function Protected({ children, role }) {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-[#5C5A56]" data-testid="loading-indicator">Loading...</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (role === "admin" && user.role !== "admin") return <Navigate to="/dashboard" replace />;
+  return children;
+}
 
 function App() {
   return (
-    <div className="App">
+    <AuthProvider>
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/pricing" element={<Pricing />} />
+            <Route path="/how-it-works" element={<HowItWorks />} />
+            <Route path="/charities" element={<Charities />} />
+            <Route path="/charities/:id" element={<CharityDetail />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/checkout/success" element={<Protected><CheckoutSuccess /></Protected>} />
+            <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
+            <Route path="/dashboard/scores" element={<Protected><ScoresPage /></Protected>} />
+            <Route path="/dashboard/draws" element={<Protected><DrawsPage /></Protected>} />
+            <Route path="/dashboard/winnings" element={<Protected><WinningsPage /></Protected>} />
+            <Route path="/dashboard/profile" element={<Protected><ProfilePage /></Protected>} />
+            <Route path="/admin" element={<Protected role="admin"><AdminDashboard /></Protected>} />
+            <Route path="/admin/users" element={<Protected role="admin"><AdminUsers /></Protected>} />
+            <Route path="/admin/draws" element={<Protected role="admin"><AdminDraws /></Protected>} />
+            <Route path="/admin/charities" element={<Protected role="admin"><AdminCharities /></Protected>} />
+            <Route path="/admin/winners" element={<Protected role="admin"><AdminWinners /></Protected>} />
+          </Routes>
+        </Layout>
+        <Toaster richColors position="top-right" />
       </BrowserRouter>
-    </div>
+    </AuthProvider>
   );
 }
 
