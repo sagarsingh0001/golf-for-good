@@ -1,0 +1,149 @@
+{
+  "theme": "light",
+  "archetype": "1_organic_and_earthy",
+  "design_philosophy": "Emotion-driven, human-first, editorial web design. Avoiding standard SaaS templates and all golf clichés (no fairways, no plaid). We lead with charitable impact and community connection, borrowing visual cues from Kickstarter, Charity Water, and Patagonia. The design feels grounded, tactile, warm, and highly trustworthy.",
+  "colors": {
+    "background": {
+      "main": "#F9F8F6",
+      "secondary": "#EBE6DD",
+      "surface": "#FFFFFF",
+      "highlight": "#F0EFEA"
+    },
+    "text": {
+      "primary": "#1C1B1A",
+      "secondary": "#5C5A56",
+      "muted": "#8E8D8A",
+      "inverse": "#FFFFFF"
+    },
+    "brand": {
+      "primary": "#1E3A2F",
+      "primary_hover": "#152D23",
+      "accent": "#D95D39",
+      "accent_hover": "#C24F2E",
+      "success": "#5B7B5A",
+      "border": "#E5E1D8"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "heading": "Outfit",
+      "body": "Work Sans",
+      "mono": "IBM Plex Mono"
+    },
+    "scale": {
+      "h1": "text-5xl sm:text-6xl tracking-tight leading-none font-bold",
+      "h2": "text-4xl sm:text-5xl tracking-tight leading-none font-semibold",
+      "h3": "text-2xl sm:text-3xl tracking-tight leading-snug font-medium",
+      "h4": "text-xl sm:text-2xl tracking-tight font-medium",
+      "body": "text-base leading-relaxed",
+      "body_large": "text-lg sm:text-xl leading-relaxed",
+      "overline": "text-xs uppercase tracking-[0.2em] font-bold text-accent",
+      "caption": "text-sm text-secondary"
+    }
+  },
+  "spacing": {
+    "section_y": "py-24 sm:py-32",
+    "container_px": "px-6 sm:px-12 lg:px-24",
+    "gap_standard": "gap-8 sm:gap-12",
+    "gap_dense": "gap-4 sm:gap-6",
+    "card_padding": "p-8 sm:p-12"
+  },
+  "surfaces_and_components": {
+    "cards": {
+      "style": "bg-white border border-border rounded-2xl",
+      "hover": "hover:shadow-lg hover:-translate-y-1 transition-all duration-300 ease-out"
+    },
+    "buttons": {
+      "primary": "bg-accent text-white font-medium rounded-full px-8 py-4 hover:bg-accent_hover transition-colors shadow-sm",
+      "secondary": "bg-primary text-white font-medium rounded-full px-8 py-4 hover:bg-primary_hover transition-colors shadow-sm",
+      "outline": "border-2 border-primary text-primary font-medium rounded-full px-8 py-4 hover:bg-primary hover:text-white transition-colors"
+    },
+    "inputs": {
+      "style": "bg-white border-border focus:border-accent focus:ring-2 focus:ring-accent/20 rounded-xl px-4 py-3"
+    },
+    "header": {
+      "style": "fixed w-full z-50 bg-[#F9F8F6]/90 backdrop-blur-xl border-b border-border/50",
+      "nav_link": "text-secondary hover:text-primary transition-colors text-sm font-medium"
+    },
+    "footer": {
+      "style": "bg-primary text-white py-24",
+      "link": "text-white/70 hover:text-white transition-colors text-sm"
+    }
+  },
+  "animations": {
+    "libraries_required": [
+      "framer-motion",
+      "lucide-react",
+      "react-fast-marquee"
+    ],
+    "page_transition": {
+      "initial": {
+        "opacity": 0,
+        "y": 10
+      },
+      "animate": {
+        "opacity": 1,
+        "y": 0
+      },
+      "transition": {
+        "duration": 0.4,
+        "ease": "easeOut"
+      }
+    },
+    "stagger_children": {
+      "variants": {
+        "hidden": {
+          "opacity": 0
+        },
+        "show": {
+          "opacity": 1,
+          "transition": {
+            "staggerChildren": 0.1
+          }
+        }
+      }
+    },
+    "marquee": {
+      "style": "bg-secondary text-primary py-4 font-serif text-sm tracking-wide"
+    }
+  },
+  "layout_patterns": {
+    "marketing_grid": "grid grid-cols-1 md:grid-cols-12 gap-8 lg:gap-12",
+    "dashboard_grid": "grid grid-cols-1 md:grid-cols-4 gap-6",
+    "hero_overlay": "bg-black/40",
+    "glassmorphism": "backdrop-blur-xl bg-white/70 border border-white/40 shadow-sm"
+  },
+  "media": {
+    "image_urls": {
+      "hero_background": {
+        "url": "https://images.pexels.com/photos/6646926/pexels-photo-6646926.jpeg",
+        "category": "Hero Background",
+        "description": "Volunteers handing out donations. Evokes community, impact, and human connection."
+      },
+      "celebration_draw": {
+        "url": "https://images.unsplash.com/photo-1758599670006-d7fe945b5966?crop=entropy&cs=srgb&fm=jpg",
+        "category": "Reward/Draw Section",
+        "description": "Silhouettes dancing at sunset. Perfect for the 'Monthly Draw' winning emotional high."
+      },
+      "environmental_impact": {
+        "url": "https://images.unsplash.com/photo-1758599668547-2b1192c10abb?crop=entropy&cs=srgb&fm=jpg",
+        "category": "Charity Spotlight",
+        "description": "Diverse community volunteers outdoors. Highlights the actual work being funded."
+      }
+    },
+    "style_rules": "Images must fill their containers using object-cover. Images used as backgrounds must have a maximum overlay of bg-black/40 to ensure contrast but keep the image visible. Max height for mobile images is 80vh."
+  },
+  "testing": {
+    "requirements": "All interactive elements, forms, and navigation links MUST have a descriptive 'data-testid' attribute (e.g., data-testid='hero-subscribe-cta', data-testid='score-entry-input')."
+  },
+  "instructions_to_main_agent": [
+    "1. Setup tailwind.config.js with the custom colors provided in the theme section.",
+    "2. Add Outfit (Heading) and Work Sans (Body) fonts via Google Fonts in index.html or global css.",
+    "3. Build the Landing Page using pure HTML/Tailwind for structural fluidity, heavily relying on the 'marketing_grid' and generous 'section_y' padding.",
+    "4. Implement an editorial marquee ('react-fast-marquee') for social proof or community stats.",
+    "5. For the User Dashboard, utilize the 'dashboard_grid' (Control Room mode) with flat, solid color backgrounds for cards to keep data legible without distraction. Do NOT use generic SaaS UI.",
+    "6. Avoid ALL golf imagery. Rely on the provided human/impact-focused assets from the 'media.image_urls' block to convey a Kickstarter/Charity Water aesthetic.",
+    "7. The primary Subscribe CTA must use the terracotta 'accent' color (#D95D39) to draw immediate attention.",
+    "8. When using Shadcn components (for forms/dashboards), remove standard Vercel-style borders and sharp edges. Use rounded-2xl, solid backgrounds, and earthy border colors (#E5E1D8)."
+  ]
+}
