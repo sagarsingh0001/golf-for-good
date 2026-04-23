@@ -51,7 +51,7 @@ async def health():
 
 # Import & register routes
 from routes import auth_routes, charity_routes, score_routes, subscription_routes
-from routes import draw_routes, winner_routes, admin_routes, upload_routes, user_routes
+from routes import draw_routes, winner_routes, admin_routes, upload_routes, user_routes, public_routes
 
 api_router.include_router(auth_routes.router)
 api_router.include_router(user_routes.router)
@@ -62,6 +62,7 @@ api_router.include_router(draw_routes.router)
 api_router.include_router(winner_routes.router)
 api_router.include_router(upload_routes.router)
 api_router.include_router(admin_routes.router)
+api_router.include_router(public_routes.router)
 
 app.include_router(api_router)
 

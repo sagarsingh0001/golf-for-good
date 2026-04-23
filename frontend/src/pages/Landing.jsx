@@ -4,6 +4,7 @@ import Marquee from "react-fast-marquee";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { ArrowRight, Heart, Trophy, Target } from "lucide-react";
+import ImpactTicker from "@/components/ImpactTicker";
 
 export default function Landing() {
   const [featured, setFeatured] = useState([]);
@@ -97,6 +98,9 @@ export default function Landing() {
           </div>
         </div>
       </section>
+
+      {/* IMPACT TICKER */}
+      <ImpactTicker />
 
       {/* FEATURED CHARITY */}
       {featured[0] && (
