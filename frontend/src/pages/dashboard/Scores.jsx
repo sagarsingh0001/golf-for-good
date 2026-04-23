@@ -11,7 +11,7 @@ export default function ScoresPage() {
   const [editingVal, setEditingVal] = useState("");
 
   const load = () => api.get("/scores").then((r) => setScores(r.data)).catch(() => {});
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
 
   const add = async (e) => {
     e.preventDefault();

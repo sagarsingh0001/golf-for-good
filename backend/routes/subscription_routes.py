@@ -61,12 +61,23 @@ async def create_checkout(payload: CheckoutRequest, request: Request, user: dict
 @router.get("/subscribe/status/{session_id}")
 async def checkout_status(session_id: str, request: Request, user: dict = Depends(get_current_user)):
     from server import db
-    stripe = _stripe_checkout(request)
-    status = await stripe.get_checkout_status(session_id)
-
     tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
     if not tx:
         raise HTTPException(404, "Transaction not found")
+
+    try:
+        stripe = _stripe_checkout(request)
+        status = await stripe.get_checkout_status(session_id)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Stripe status lookup failed for {session_id}: {e}")
+        # Fallback to cached DB status so the UI can still render.
+        return {
+            "status": "unknown",
+            "payment_status": tx.get("payment_status", "initiated"),
+            "amount_total": int(float(tx.get("amount", 0)) * 100),
+            "currency": tx.get("currency", "usd"),
+        }
 
     # Idempotent update
     if tx["payment_status"] != "paid" and status.payment_status == "paid":
@@ -103,7 +114,9 @@ async def stripe_webhook(request: Request):
         stripe = _stripe_checkout(request)
         evt = await stripe.handle_webhook(body, signature)
     except Exception as e:
-        raise HTTPException(400, f"Webhook error: {e}")
+        import logging
+        logging.getLogger(__name__).warning(f"Webhook handling failed: {e}")
+        return {"received": False, "error": str(e)}
 
     if evt.payment_status == "paid" and evt.session_id:
         tx = await db.payment_transactions.find_one({"session_id": evt.session_id}, {"_id": 0})

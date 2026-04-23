@@ -1,0 +1,59 @@
+{
+  "summary": "Frontend E2E test run for Golf For Good. Playwright covered landing, nav (desktop + mobile menu), login (admin + test user), admin guards, dashboard shell + cards, scores CRUD with 1-per-date + last-5 eviction + duplicate toast, draws/winnings/profile pages, profile save + cancel-sub visibility, charities grid+search+filters+detail, pricing Stripe checkout redirect, signup form. One runtime bug fixed in Scores.jsx (useEffect returning a Promise caused a red React error overlay that blocked scores interaction). After fix, 100% of flows listed in the review request pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "dashboard/Scores.jsx",
+        "issue": "useEffect(load, []) passed a function that returns a Promise. React used the Promise as the effect cleanup, throwing 'TypeError: destroy is not a function' on every re-render/unmount and rendering the CRA red error overlay. FIXED by wrapping in an arrow function: useEffect(() => { load(); }, []).",
+        "selector": "[data-testid=\"scores-page\"]",
+        "priority": "HIGH (fixed by testing agent)"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Logout from admin pages",
+        "issue": "Clicking nav-logout while on /admin/* navigates to /login instead of /. Likely race between Protected guard (redirects to /login when user becomes null) and the local nav('/') call in the logout handler. Cosmetic but makes the user land on login instead of the marketing home.",
+        "affected_selectors": ["[data-testid=\"nav-logout\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Global",
+        "issues": [
+          "Design system (#F9F8F6 bg, #1E3A2F primary, #D95D39 accent) is consistently applied across landing, dashboard, admin, pricing — looks clean and on-brand.",
+          "Console noise: recurring 401 on /api/auth/me for anonymous visitors on public pages — consider silencing the initial fetch when no auth cookie is present."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Validate the Scores.jsx fix I applied (1-line change: useEffect(() => { load(); }, [])). Consider running ESLint react-hooks rules to catch similar issues project-wide.",
+    "(minor) Fix logout-from-admin redirect so users land on '/' rather than '/login'. e.g., await logout(); then navigate with a replace + forced route, or gate the Protected redirect behind a short delay.",
+    "(from iter1, still open) Wrap emergentintegrations Stripe status calls in try/except so /api/subscribe/status/{session_id} returns 4xx instead of 500 when the session cannot be retrieved.",
+    "(from iter1, still open) Pin CORS allow_origins + drop allow_origins=['*'] when allow_credentials=True.",
+    "(from iter1, still open) Add login rate-limit / lockout after 5 failed attempts per the auth playbook."
+  ],
+  "critical_code_review_comments": [
+    "Scores.jsx had useEffect(load, []) where load returns a Promise — this is a recurring mistake that React does not catch at compile time but crashes at unmount. Enable eslint-plugin-react-hooks with exhaustive-deps to catch this.",
+    "AuthContext /auth/me call on every mount for anonymous visitors produces 401 noise in console. Gate the call behind a cookie-presence check or swallow 401s silently.",
+    "Layout logout handler: await logout(); nav('/'); races with Protected guard — refactor logout to return a Promise that resolves only after the navigation completes (or navigate before clearing user state)."
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/dashboard/Scores.jsx"
+  ],
+  "success_rate": {
+    "backend": "not re-tested this iteration (was 97% in iter1)",
+    "frontend": "100% of review-request flows pass after Scores fix"
+  },
+  "test_credentials": "Admin admin@golfforgood.com / Admin@1234. Test user test@golfforgood.com / Test@1234. Both work and route to the correct landing page (/admin vs /dashboard).",
+  "seed_data_creation": "Added / deleted 6 Stableford scores on test user (2026-01-10..15) to validate last-5 eviction and duplicate-date toast. Final state: 5 scores remain for test user (dates 2026-01-11..15). Also toggled test user's charity_percentage to 20% via /dashboard/profile.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 14 review-request flows pass end-to-end. Stripe checkout redirect confirmed by expect_navigation to *.stripe.com returning a valid cs_test_ session URL — do NOT try to complete the Stripe checkout form. The only frontend source change is Scores.jsx (line 14). iter1 backend bug on /api/subscribe/status remains open.",
+  "rca_of_the_issue": "Scores page crash RCA: React's useEffect treats the return value of its callback as a cleanup function. `useEffect(load, [])` passed `load`, which is `() => api.get('/scores').then(...).catch(...)` — this returns a Promise, not a function. On unmount (or Fast Refresh double-invoke), React called `promise()` → 'TypeError: destroy is not a function' → red overlay blanketed the page and intercepted Playwright clicks. Fix: wrap in `() => { load(); }` so the effect returns undefined. Repro before fix: log in as test user → visit /dashboard/scores → add or delete a score → error overlay appears after re-render."
+}
