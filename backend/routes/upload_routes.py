@@ -3,8 +3,10 @@ import os
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Response
+
 from auth import get_current_user
 from services.storage import put_object, get_object, build_path
+from services import db as sdb
 
 router = APIRouter(tags=["uploads"])
 
@@ -18,8 +20,7 @@ async def upload_proof(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
-    from server import db
-    winner = await db.winners.find_one({"id": winner_id, "user_id": user["id"]})
+    winner = await sdb.select_one("winners", {"id": winner_id, "user_id": user["id"]})
     if not winner:
         raise HTTPException(404, "Winner entry not found")
 
@@ -37,7 +38,7 @@ async def upload_proof(
     except Exception as e:
         raise HTTPException(500, f"Upload failed: {e}")
 
-    await db.files.insert_one({
+    await sdb.insert_one("files", {
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
         "storage_path": result["path"],
@@ -48,13 +49,13 @@ async def upload_proof(
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
-    await db.winners.update_one(
-        {"id": winner_id},
-        {"$set": {
+    await sdb.update_by(
+        "winners", {"id": winner_id},
+        {
             "proof_storage_path": result["path"],
             "proof_uploaded_at": datetime.now(timezone.utc).isoformat(),
             "verification_status": "pending",
-        }},
+        },
     )
 
     return {"path": result["path"]}
@@ -62,9 +63,7 @@ async def upload_proof(
 
 @router.get("/files/view")
 async def view_file(path: str, user: dict = Depends(get_current_user)):
-    """Serve a file if the user owns it or is admin."""
-    from server import db
-    record = await db.files.find_one({"storage_path": path, "is_deleted": False})
+    record = await sdb.select_one("files", {"storage_path": path, "is_deleted": False})
     if not record:
         raise HTTPException(404, "File not found")
     if record["user_id"] != user["id"] and user.get("role") != "admin":

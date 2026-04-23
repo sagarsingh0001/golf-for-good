@@ -1,38 +1,34 @@
 """Auth routes."""
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Request, Response, Depends
+from fastapi import APIRouter, HTTPException, Response, Depends
+
 from models import UserRegister, UserLogin
 from auth import (
     hash_password, verify_password, create_access_token, create_refresh_token,
     set_auth_cookies, clear_auth_cookies, get_current_user,
 )
+from services import db as sdb
 from services.email_service import send_email, render_welcome
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def _public_user(u: dict) -> dict:
-    u = {k: v for k, v in u.items() if k not in ("password_hash", "_id")}
-    return u
+    return {k: v for k, v in u.items() if k != "password_hash"}
 
 
 @router.post("/register")
 async def register(payload: UserRegister, response: Response):
-    from server import db
     email = payload.email.lower().strip()
-    if await db.users.find_one({"email": email}):
+    if await sdb.select_one("users", {"email": email}):
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Validate charity if provided
-    charity_id = payload.charity_id
-    if charity_id:
-        c = await db.charities.find_one({"id": charity_id})
-        if not c:
+    if payload.charity_id:
+        if not await sdb.select_one("charities", {"id": payload.charity_id}):
             raise HTTPException(status_code=400, detail="Invalid charity")
 
     user_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
     doc = {
         "id": user_id,
         "email": email,
@@ -42,30 +38,28 @@ async def register(payload: UserRegister, response: Response):
         "subscription_status": "inactive",
         "subscription_plan": None,
         "subscription_end": None,
-        "charity_id": charity_id,
-        "charity_percentage": max(10.0, payload.charity_percentage or 10.0),
-        "created_at": now,
+        "charity_id": payload.charity_id,
+        "charity_percentage": float(max(10.0, payload.charity_percentage or 10.0)),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    await db.users.insert_one(doc)
+    created = await sdb.insert_one("users", doc)
 
     access = create_access_token(user_id, email, "user")
     refresh = create_refresh_token(user_id)
     set_auth_cookies(response, access, refresh)
 
-    # Fire-and-forget welcome email
     try:
         await send_email(email, "Welcome to Golf For Good", render_welcome(payload.name))
     except Exception:
         pass
 
-    return _public_user(doc)
+    return _public_user(created)
 
 
 @router.post("/login")
 async def login(payload: UserLogin, response: Response):
-    from server import db
     email = payload.email.lower().strip()
-    user = await db.users.find_one({"email": email})
+    user = await sdb.select_one("users", {"email": email})
     if not user or not verify_password(payload.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     access = create_access_token(user["id"], user["email"], user.get("role", "user"))

@@ -1,14 +1,18 @@
 """Subscription and Stripe checkout routes."""
 import os
 import uuid
+import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
+
 from auth import get_current_user
 from models import CheckoutRequest
+from services import db as sdb
 from services.draw_engine import MONTHLY_PRICE, YEARLY_PRICE
 
 router = APIRouter(tags=["subscription"])
+logger = logging.getLogger(__name__)
 
 PLANS = {"monthly": MONTHLY_PRICE, "yearly": YEARLY_PRICE}
 
@@ -22,7 +26,6 @@ def _stripe_checkout(request: Request) -> StripeCheckout:
 
 @router.post("/subscribe/checkout")
 async def create_checkout(payload: CheckoutRequest, request: Request, user: dict = Depends(get_current_user)):
-    from server import db
     if payload.plan not in PLANS:
         raise HTTPException(400, "Invalid plan")
 
@@ -42,7 +45,7 @@ async def create_checkout(payload: CheckoutRequest, request: Request, user: dict
         )
     )
 
-    await db.payment_transactions.insert_one({
+    await sdb.insert_one("payment_transactions", {
         "id": str(uuid.uuid4()),
         "session_id": session.session_id,
         "user_id": user["id"],
@@ -60,8 +63,7 @@ async def create_checkout(payload: CheckoutRequest, request: Request, user: dict
 
 @router.get("/subscribe/status/{session_id}")
 async def checkout_status(session_id: str, request: Request, user: dict = Depends(get_current_user)):
-    from server import db
-    tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    tx = await sdb.select_one("payment_transactions", {"session_id": session_id})
     if not tx:
         raise HTTPException(404, "Transaction not found")
 
@@ -69,9 +71,7 @@ async def checkout_status(session_id: str, request: Request, user: dict = Depend
         stripe = _stripe_checkout(request)
         status = await stripe.get_checkout_status(session_id)
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Stripe status lookup failed for {session_id}: {e}")
-        # Fallback to cached DB status so the UI can still render.
+        logger.warning(f"Stripe status lookup failed for {session_id}: {e}")
         return {
             "status": "unknown",
             "payment_status": tx.get("payment_status", "initiated"),
@@ -79,22 +79,18 @@ async def checkout_status(session_id: str, request: Request, user: dict = Depend
             "currency": tx.get("currency", "usd"),
         }
 
-    # Idempotent update
     if tx["payment_status"] != "paid" and status.payment_status == "paid":
-        await db.payment_transactions.update_one(
+        await sdb.update_by(
+            "payment_transactions",
             {"session_id": session_id},
-            {"$set": {"payment_status": "paid", "completed_at": datetime.now(timezone.utc).isoformat()}},
+            {"payment_status": "paid", "completed_at": datetime.now(timezone.utc).isoformat()},
         )
-        # Activate subscription
         days = 365 if tx["plan"] == "yearly" else 31
         end = datetime.now(timezone.utc) + timedelta(days=days)
-        await db.users.update_one(
+        await sdb.update_by(
+            "users",
             {"id": tx["user_id"]},
-            {"$set": {
-                "subscription_status": "active",
-                "subscription_plan": tx["plan"],
-                "subscription_end": end.isoformat(),
-            }},
+            {"subscription_status": "active", "subscription_plan": tx["plan"], "subscription_end": end.isoformat()},
         )
 
     return {
@@ -107,43 +103,34 @@ async def checkout_status(session_id: str, request: Request, user: dict = Depend
 
 @router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
-    from server import db
     body = await request.body()
     signature = request.headers.get("Stripe-Signature", "")
     try:
         stripe = _stripe_checkout(request)
         evt = await stripe.handle_webhook(body, signature)
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Webhook handling failed: {e}")
+        logger.warning(f"Webhook handling failed: {e}")
         return {"received": False, "error": str(e)}
 
     if evt.payment_status == "paid" and evt.session_id:
-        tx = await db.payment_transactions.find_one({"session_id": evt.session_id}, {"_id": 0})
+        tx = await sdb.select_one("payment_transactions", {"session_id": evt.session_id})
         if tx and tx["payment_status"] != "paid":
-            await db.payment_transactions.update_one(
+            await sdb.update_by(
+                "payment_transactions",
                 {"session_id": evt.session_id},
-                {"$set": {"payment_status": "paid", "completed_at": datetime.now(timezone.utc).isoformat()}},
+                {"payment_status": "paid", "completed_at": datetime.now(timezone.utc).isoformat()},
             )
             days = 365 if tx["plan"] == "yearly" else 31
             end = datetime.now(timezone.utc) + timedelta(days=days)
-            await db.users.update_one(
+            await sdb.update_by(
+                "users",
                 {"id": tx["user_id"]},
-                {"$set": {
-                    "subscription_status": "active",
-                    "subscription_plan": tx["plan"],
-                    "subscription_end": end.isoformat(),
-                }},
+                {"subscription_status": "active", "subscription_plan": tx["plan"], "subscription_end": end.isoformat()},
             )
     return {"received": True}
 
 
 @router.post("/subscribe/cancel")
 async def cancel_subscription(user: dict = Depends(get_current_user)):
-    """Simple cancel — marks subscription as inactive."""
-    from server import db
-    await db.users.update_one(
-        {"id": user["id"]},
-        {"$set": {"subscription_status": "cancelled"}},
-    )
+    await sdb.update_by("users", {"id": user["id"]}, {"subscription_status": "cancelled"})
     return {"ok": True}

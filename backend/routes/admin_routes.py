@@ -1,69 +1,94 @@
 """Admin routes — users + reports."""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from auth import admin_required
+from services import db as sdb
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+ALLOWED_USER_FIELDS = {"name", "role", "subscription_status", "subscription_plan", "charity_id", "charity_percentage"}
+
+
+def _strip(u: dict) -> dict:
+    return {k: v for k, v in u.items() if k != "password_hash"}
 
 
 @router.get("/users", dependencies=[Depends(admin_required)])
 async def list_users(q: str | None = None, limit: int = Query(200, ge=1, le=1000)):
-    from server import db
-    filt = {}
     if q:
-        filt = {"$or": [{"email": {"$regex": q, "$options": "i"}}, {"name": {"$regex": q, "$options": "i"}}]}
-    items = await db.users.find(filt, {"_id": 0, "password_hash": 0}).to_list(limit)
-    return items
+        # Use OR via PostgREST by doing two ilike queries and merging
+        by_email = await sdb.search_ilike("users", "email", f"%{q}%", limit=limit)
+        by_name = await sdb.search_ilike("users", "name", f"%{q}%", limit=limit)
+        seen, out = set(), []
+        for u in (by_email + by_name):
+            if u["id"] not in seen:
+                seen.add(u["id"])
+                out.append(_strip(u))
+        return out
+    items = await sdb.select_many("users", order_by="created_at", ascending=False, limit=limit)
+    return [_strip(u) for u in items]
 
 
 @router.patch("/users/{user_id}", dependencies=[Depends(admin_required)])
 async def update_user(user_id: str, payload: dict):
-    from server import db
-    allowed = {"name", "role", "subscription_status", "subscription_plan", "charity_id", "charity_percentage"}
-    upd = {k: v for k, v in payload.items() if k in allowed}
+    upd = {k: v for k, v in payload.items() if k in ALLOWED_USER_FIELDS}
     if not upd:
         raise HTTPException(400, "Nothing to update")
-    res = await db.users.update_one({"id": user_id}, {"$set": upd})
-    if res.matched_count == 0:
+    updated = await sdb.update_by("users", {"id": user_id}, upd)
+    if not updated:
         raise HTTPException(404, "Not found")
-    return await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    return _strip(updated)
 
 
 @router.patch("/users/{user_id}/scores/{score_id}", dependencies=[Depends(admin_required)])
 async def admin_edit_score(user_id: str, score_id: str, payload: dict):
-    from server import db
     if "value" not in payload:
         raise HTTPException(400, "value required")
-    res = await db.scores.update_one({"id": score_id, "user_id": user_id}, {"$set": {"value": int(payload["value"])}})
-    if res.matched_count == 0:
+    existing = await sdb.select_one("scores", {"id": score_id, "user_id": user_id})
+    if not existing:
         raise HTTPException(404, "Not found")
-    return await db.scores.find_one({"id": score_id}, {"_id": 0})
+    return await sdb.update_by("scores", {"id": score_id}, {"value": int(payload["value"])})
 
 
 @router.get("/users/{user_id}/scores", dependencies=[Depends(admin_required)])
 async def admin_user_scores(user_id: str):
-    from server import db
-    return await db.scores.find({"user_id": user_id}, {"_id": 0}).sort("date", -1).to_list(50)
+    return await sdb.select_many(
+        "scores", {"user_id": user_id},
+        order_by="date", ascending=False, limit=50,
+    )
 
 
 @router.get("/reports/summary", dependencies=[Depends(admin_required)])
 async def reports_summary():
-    from server import db
-    total_users = await db.users.count_documents({"role": "user"})
-    active_subs = await db.users.count_documents({"subscription_status": "active", "role": "user"})
-    total_charities = await db.charities.count_documents({})
-    total_winners = await db.winners.count_documents({})
-    pending_payouts = await db.winners.count_documents({"payout_status": "pending"})
-    latest_draw = await db.draws.find_one({"status": "published"}, {"_id": 0}, sort=[("month", -1)])
-    prize_pool = latest_draw.get("prize_pool", {}).get("total_pool", 0.0) if latest_draw else 0.0
+    total_users = await sdb.count("users", {"role": "user"})
+    active_subs = await sdb.count("users", {"subscription_status": "active", "role": "user"})
+    total_charities = await sdb.count("charities")
+    total_winners = await sdb.count("winners")
+    pending_payouts = await sdb.count("winners", {"payout_status": "pending"})
 
-    # Payment totals
-    paid = await db.payment_transactions.find({"payment_status": "paid"}, {"_id": 0, "amount": 1}).to_list(10000)
-    total_revenue = sum(t["amount"] for t in paid)
+    latest_list = await sdb.select_many(
+        "draws", {"status": "published"},
+        order_by="month", ascending=False, limit=1,
+    )
+    prize_pool = 0.0
+    if latest_list:
+        pp = latest_list[0].get("prize_pool") or {}
+        prize_pool = float(pp.get("total_pool", 0.0))
+
+    paid = await sdb.select_many(
+        "payment_transactions", {"payment_status": "paid"},
+        columns="amount", limit=10000,
+    )
+    total_revenue = sum(float(t["amount"]) for t in paid)
+
+    active_for_charity = await sdb.select_many(
+        "users", {"subscription_status": "active", "role": "user"},
+        columns="charity_percentage,subscription_plan", limit=10000,
+    )
     charity_contrib = 0.0
-    for u in await db.users.find({"subscription_status": "active", "role": "user"}, {"_id": 0, "charity_percentage": 1, "subscription_plan": 1}).to_list(10000):
+    for u in active_for_charity:
         plan = u.get("subscription_plan") or "monthly"
         est = 99.0 if plan == "yearly" else 9.99
-        charity_contrib += est * (u.get("charity_percentage", 10.0) / 100.0)
+        charity_contrib += est * (float(u.get("charity_percentage", 10.0)) / 100.0)
 
     return {
         "total_users": total_users,

@@ -1,32 +1,42 @@
 """Public stats — safe aggregate numbers for marketing pages."""
 from fastapi import APIRouter
+from services import db as sdb
 
 router = APIRouter(prefix="/public", tags=["public"])
 
 
 @router.get("/stats")
 async def public_stats():
-    from server import db
-    active_subs = await db.users.count_documents({"subscription_status": "active", "role": "user"})
-    total_users = await db.users.count_documents({"role": "user"})
-    total_charities = await db.charities.count_documents({})
+    active_subs = await sdb.count("users", {"subscription_status": "active", "role": "user"})
+    total_users = await sdb.count("users", {"role": "user"})
+    total_charities = await sdb.count("charities")
 
-    # Total charitable contribution (estimate from active subs × plan price × their percentage)
+    actives = await sdb.select_many(
+        "users", {"subscription_status": "active", "role": "user"},
+        columns="charity_percentage,subscription_plan", limit=10000,
+    )
     charity_contrib = 0.0
-    async for u in db.users.find({"subscription_status": "active", "role": "user"}, {"_id": 0, "charity_percentage": 1, "subscription_plan": 1}):
+    for u in actives:
         plan = u.get("subscription_plan") or "monthly"
         est = 99.0 if plan == "yearly" else 9.99
-        charity_contrib += est * (u.get("charity_percentage", 10.0) / 100.0)
+        charity_contrib += est * (float(u.get("charity_percentage", 10.0)) / 100.0)
 
-    # Total prizes awarded (paid winners)
-    paid_winners = await db.winners.find({"payout_status": "paid"}, {"_id": 0, "prize_amount": 1}).to_list(10000)
-    total_prizes_paid = sum(w.get("prize_amount", 0) for w in paid_winners)
+    paid_winners = await sdb.select_many(
+        "winners", {"payout_status": "paid"},
+        columns="prize_amount", limit=10000,
+    )
+    total_prizes_paid = sum(float(w.get("prize_amount", 0) or 0) for w in paid_winners)
 
-    total_winners = await db.winners.count_documents({})
+    total_winners = await sdb.count("winners")
 
-    # Current prize pool (latest published draw)
-    latest = await db.draws.find_one({"status": "published"}, {"_id": 0}, sort=[("month", -1)])
-    current_pool = latest.get("prize_pool", {}).get("total_pool", 0.0) if latest else 0.0
+    latest_list = await sdb.select_many(
+        "draws", {"status": "published"},
+        order_by="month", ascending=False, limit=1,
+    )
+    current_pool = 0.0
+    if latest_list:
+        pp = latest_list[0].get("prize_pool") or {}
+        current_pool = float(pp.get("total_pool", 0.0))
 
     return {
         "active_subscribers": active_subs,

@@ -1,10 +1,11 @@
-"""JWT authentication helpers."""
+"""JWT authentication helpers (Supabase-backed)."""
 import os
 import bcrypt
 import jwt
 from datetime import datetime, timezone, timedelta
 from fastapi import Request, HTTPException, Depends
-from motor.motor_asyncio import AsyncIOMotorDatabase
+
+from services import db as sdb
 
 JWT_ALGORITHM = "HS256"
 
@@ -47,22 +48,12 @@ def create_refresh_token(user_id: str) -> str:
 
 def set_auth_cookies(response, access_token: str, refresh_token: str):
     response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        max_age=60 * 60 * 24,
-        path="/",
+        key="access_token", value=access_token, httponly=True,
+        secure=True, samesite="none", max_age=60 * 60 * 24, path="/",
     )
     response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        max_age=60 * 60 * 24 * 7,
-        path="/",
+        key="refresh_token", value=refresh_token, httponly=True,
+        secure=True, samesite="none", max_age=60 * 60 * 24 * 7, path="/",
     )
 
 
@@ -84,8 +75,11 @@ def extract_token(request: Request) -> str | None:
     return token
 
 
+def _strip_user(u: dict) -> dict:
+    return {k: v for k, v in u.items() if k != "password_hash"}
+
+
 async def get_current_user(request: Request) -> dict:
-    from server import db  # local import to avoid cycle
     token = extract_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -97,10 +91,11 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
     if payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Invalid token type")
-    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+
+    user = await sdb.select_one("users", {"id": payload["sub"]})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-    return user
+    return _strip_user(user)
 
 
 async def admin_required(user: dict = Depends(get_current_user)) -> dict:

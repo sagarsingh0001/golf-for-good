@@ -2,19 +2,20 @@
 from fastapi import APIRouter, Depends, HTTPException
 from auth import get_current_user
 from models import CharitySelection
+from services import db as sdb
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.patch("/me/charity")
 async def update_charity(payload: CharitySelection, user: dict = Depends(get_current_user)):
-    from server import db
-    c = await db.charities.find_one({"id": payload.charity_id})
-    if not c:
+    if not await sdb.select_one("charities", {"id": payload.charity_id}):
         raise HTTPException(status_code=400, detail="Invalid charity")
-    await db.users.update_one(
+    updated = await sdb.update_by(
+        "users",
         {"id": user["id"]},
-        {"$set": {"charity_id": payload.charity_id, "charity_percentage": payload.charity_percentage}},
+        {"charity_id": payload.charity_id, "charity_percentage": float(payload.charity_percentage)},
     )
-    updated = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
-    return updated
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {k: v for k, v in updated.items() if k != "password_hash"}
